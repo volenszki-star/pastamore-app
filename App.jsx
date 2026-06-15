@@ -315,6 +315,7 @@ export default function App() {
   const [meId, setMeId] = useState(12);
   const [tab, setTab] = useState("central");
   const [now, setNow] = useState(now0);
+  const [loaded, setLoaded] = useState(false);
   const [viewDept, setViewDept] = useState("palya");
   const [empSchedView, setEmpSchedView] = useState("self");
 
@@ -372,6 +373,8 @@ export default function App() {
   const [newRate, setNewRate] = useState("");
   const [ownerDay, setOwnerDay] = useState(todayIndex);
   const histRef = useRef([]);
+  const fbRef = useRef(null);
+  const saveTimer = useRef(null);
   const lastTabRef = useRef("central");
   const goingBackRef = useRef(false);
 
@@ -382,6 +385,58 @@ export default function App() {
   const isMgr = myLevel !== "employee";
 
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
+
+  // --- Firestore perzisztencia: betöltés induláskor, mentés változáskor ---
+  function collectState() {
+    return JSON.parse(JSON.stringify({ people, roles, blocks, shifts, entries, swaps, sanctions, timeOff, announcements, dutyManagers, offDefaultCap, offCaps, activationCodes }));
+  }
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { db } = await import("./firebase.js");
+        const { doc, getDoc, setDoc } = await import("firebase/firestore");
+        if (cancelled) return;
+        fbRef.current = { db, doc, setDoc };
+        const ref = doc(db, "state", "main");
+        const snap = await getDoc(ref);
+        if (cancelled) return;
+        if (snap.exists()) {
+          const d = snap.data();
+          if (d.people) setPeople(d.people);
+          if (d.roles) setRoles(d.roles);
+          if (d.blocks) setBlocks(d.blocks);
+          if (d.shifts) setShifts(d.shifts);
+          if (d.entries) setEntries(d.entries);
+          if (d.swaps) setSwaps(d.swaps);
+          if (d.sanctions) setSanctions(d.sanctions);
+          if (d.timeOff) setTimeOff(d.timeOff);
+          if (d.announcements) setAnnouncements(d.announcements);
+          if (d.dutyManagers) setDutyManagers(d.dutyManagers);
+          if (typeof d.offDefaultCap === "number") setOffDefaultCap(d.offDefaultCap);
+          if (d.offCaps) setOffCaps(d.offCaps);
+          if (d.activationCodes) setActivationCodes(d.activationCodes);
+        } else {
+          await setDoc(ref, collectState()); // első indítás: az aktuális (seed) állapot mentése
+        }
+      } catch (e) {
+        console.warn("Firestore nem elérhető — helyi adatokkal futunk.", e);
+      } finally {
+        if (!cancelled) setLoaded(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  useEffect(() => {
+    if (!loaded || !fbRef.current) return;
+    const snapshot = collectState();
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      const { db, doc, setDoc } = fbRef.current;
+      setDoc(doc(db, "state", "main"), snapshot).catch((e) => console.warn("Mentés hiba:", e));
+    }, 800);
+    return () => clearTimeout(saveTimer.current);
+  }, [loaded, people, roles, blocks, shifts, entries, swaps, sanctions, timeOff, announcements, dutyManagers, offDefaultCap, offCaps, activationCodes]);
   useEffect(() => {
     const m = emp(meId);
     setViewDept(m.level === "employee" ? m.dept : m.depts[0]);
@@ -1489,6 +1544,10 @@ export default function App() {
   const daysInMonth = new Date(calY, calMo + 1, 0).getDate();
   const canPrev = calMonth > CUR_MONTH, canNext = calMonth < MAX_MONTH;
   const gotoMonth = (delta) => { const d = new Date(calY, calMo + delta, 1); setCalMonth(dayKey(d)); };
+
+  if (!loaded) return (
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-500 font-sans text-sm">Betöltés…</div>
+  );
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-950 to-slate-900 flex items-start justify-center p-0 sm:p-4 font-sans">
