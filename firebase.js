@@ -4,12 +4,13 @@ import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: "IDE_MASOLD",
-  authDomain: "IDE_MASOLD",
-  projectId: "IDE_MASOLD",
-  storageBucket: "IDE_MASOLD",
-  messagingSenderId: "IDE_MASOLD",
-  appId: "IDE_MASOLD",
+  apiKey: "AIzaSyDSHiEVy0YGTAacGS6EpJi44mRr6w8frCM",
+  authDomain: "dob-18-gastro.firebaseapp.com",
+  projectId: "dob-18-gastro",
+  storageBucket: "dob-18-gastro.firebasestorage.app",
+  messagingSenderId: "1011325612390",
+  appId: "1:1011325612390:web:301f8034e0f9b4190618a7",
+  measurementId: "G-SWWNVRC7HN"
 };
 
 const app = initializeApp(firebaseConfig);
