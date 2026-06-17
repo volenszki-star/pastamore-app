@@ -378,6 +378,11 @@ export default function App() {
   const [adminWipeConfirm, setAdminWipeConfirm] = useState(false);
   const [expFrom, setExpFrom] = useState(() => { const d = new Date(now0); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-01`; });
   const [expTo, setExpTo] = useState(() => { const d = new Date(now0); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; });
+  const [hoursMode, setHoursMode] = useState("day");
+  const [hoursWeek, setHoursWeek] = useState(() => { const d = new Date(now0); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; });
+  const [hoursMonth, setHoursMonth] = useState(() => { const d = new Date(now0); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; });
+  const [empEditDesk, setEmpEditDesk] = useState(null);
+  const [empDeleteConfirm, setEmpDeleteConfirm] = useState(null);
   const [mgrTeamSub, setMgrTeamSub] = useState("hours");
   const [seenAnn, setSeenAnn] = useState([]);
   const [dutyManagers, setDutyManagers] = useState([{ id: 104, slot: "all" }, { id: 102, slot: "all" }]);
@@ -1292,6 +1297,30 @@ export default function App() {
     );
   }
 
+  function openEmpDesk(p) {
+    if (p) setEmpEditDesk({ id: p.id, name: p.name, dept: p.dept, role: p.role, level: p.level, payType: p.payType || "hourly", rate: p.rate || 0, salary: p.salary || 0 });
+    else setEmpEditDesk({ id: null, name: "", dept: "konyha", role: "", level: "employee", payType: "hourly", rate: 2000, salary: 0 });
+  }
+  function saveEmpDesk() {
+    const e = empEditDesk; if (!e) return;
+    const name = (e.name || "").trim(); if (!name) { flash("Adj meg egy nevet.", "warn"); return; }
+    const patch = { name, dept: e.dept, depts: [e.dept], role: (e.role || "").trim() || "Felszolgáló", level: e.level, payType: e.payType, rate: Number(e.rate) || 0, salary: Number(e.salary) || 0 };
+    if (e.id == null) {
+      const id = Math.max(0, ...people.map((p) => p.id)) + 1;
+      setPeople((p) => [...p, { id, ...patch, color: PALETTE[id % PALETTE.length], specialty: null, account: "pending" }]);
+      flash(`${shortName(name)} felvéve — aktiválásra vár.`, "ok");
+    } else {
+      setPeople((p) => p.map((x) => (x.id === e.id ? { ...x, ...patch } : x)));
+      flash("Mentve.", "ok");
+    }
+    setEmpEditDesk(null);
+  }
+  function deletePersonDesk(id) {
+    setPeople((p) => p.filter((x) => x.id !== id));
+    setActivationCodes((p) => { const n = { ...p }; delete n[id]; return n; });
+    setEmpDeleteConfirm(null); setEmpEditDesk(null);
+    flash("Dolgozó törölve.", "warn");
+  }
   function parseAdminImport(text) {
     return text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((line, i) => {
       const [name = "", deptRaw = "", role = "", rateRaw = ""] = line.split(/[;\t,]/).map((s) => s.trim());
@@ -1324,19 +1353,24 @@ export default function App() {
     flash("Tiszta indítás kész — a demó adatok törölve.", "ok");
   }
   function PeopleAdminDesktop() {
-    const rows = people.filter((p) => p.level === "employee");
+    const rows = people.filter((p) => p.level === "employee" || p.level === "manager");
     const byDept = [...OPS_DEPTS, "office"].filter((d) => rows.some((r) => r.dept === d));
     const statusBadge = (acc) => acc === "active"
       ? <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300">Aktív</span>
       : acc === "pending"
       ? <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300">Aktiválásra vár</span>
       : <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-600/30 text-slate-400">Letiltva</span>;
+    const payStr = (p) => (p.payType === "monthly") ? `${(p.salary || 0).toLocaleString("hu-HU")} Ft/hó` : `${(p.rate || 0).toLocaleString("hu-HU")} Ft/ó`;
+    const levelBadge = (lv) => lv === "manager"
+      ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300">Részlegvezető</span>
+      : <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-600/30 text-slate-400">Alkalmazott</span>;
     return (
       <div className="space-y-5">
         <div className="flex items-center gap-2">
           <div className="text-sm text-slate-400">{rows.length} dolgozó</div>
           <div className="ml-auto flex items-center gap-2">
-            <button onClick={() => setAdminImportOpen((v) => !v)} className="text-sm flex items-center gap-1.5 px-3 py-2 rounded-lg text-white font-medium" style={{ background: BRAND.red }}><UserPlus className="w-4 h-4" /> Tömeges felvétel</button>
+            <button onClick={() => openEmpDesk(null)} className="text-sm flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700"><UserPlus className="w-4 h-4" /> Új dolgozó</button>
+            <button onClick={() => setAdminImportOpen((v) => !v)} className="text-sm flex items-center gap-1.5 px-3 py-2 rounded-lg text-white font-medium" style={{ background: BRAND.red }}><Users className="w-4 h-4" /> Tömeges felvétel</button>
             <button onClick={() => setAdminWipeConfirm(true)} className="text-sm flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 text-rose-300 hover:bg-slate-700"><RotateCcw className="w-4 h-4" /> Tiszta indítás</button>
           </div>
         </div>
@@ -1368,23 +1402,62 @@ export default function App() {
             <div className="text-xs text-slate-500 mb-1.5">{deptLabel(dep)} · {list.length} fő</div>
             <div className="border border-slate-800 rounded-xl overflow-hidden">
               <table className="w-full text-sm">
-                <thead className="text-[11px] text-slate-500 bg-slate-800/40"><tr><th className="text-left px-3 py-2">Név</th><th className="text-left px-3 py-2">Munkakör</th><th className="text-right px-3 py-2">Órabér</th><th className="text-left px-3 py-2 pl-4">Státusz</th><th className="text-right px-3 py-2">Művelet</th></tr></thead>
+                <thead className="text-[11px] text-slate-500 bg-slate-800/40"><tr><th className="text-left px-3 py-2">Név</th><th className="text-left px-3 py-2">Munkakör</th><th className="text-left px-3 py-2">Szint</th><th className="text-right px-3 py-2">Bérezés</th><th className="text-left px-3 py-2 pl-4">Státusz</th><th className="text-right px-3 py-2">Művelet</th></tr></thead>
                 <tbody>{list.map((p) => (
-                  <tr key={p.id} className="border-t border-slate-800/60 hover:bg-slate-800/30">
+                  <tr key={p.id} onClick={() => openEmpDesk(p)} className="border-t border-slate-800/60 hover:bg-slate-800/30 cursor-pointer">
                     <td className="px-3 py-2 text-slate-200">{p.name}</td>
                     <td className="px-3 py-2 text-slate-400">{p.role}</td>
-                    <td className="px-3 py-2 text-right text-slate-300">{p.rate} Ft</td>
+                    <td className="px-3 py-2">{levelBadge(p.level)}</td>
+                    <td className="px-3 py-2 text-right text-slate-300 whitespace-nowrap">{payStr(p)}</td>
                     <td className="px-3 py-2 pl-4">{statusBadge(p.account)}</td>
-                    <td className="px-3 py-2 text-right whitespace-nowrap">
+                    <td className="px-3 py-2 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                       {p.account === "pending" && <button onClick={() => genInviteCode(p.id)} className="text-xs px-2 py-1 rounded bg-amber-500/15 text-amber-300 hover:bg-amber-500/25">Kód</button>}
                       {p.account === "active" && <button onClick={() => deactivateEmp(p.id)} className="text-xs px-2 py-1 rounded bg-slate-700/50 text-slate-300 hover:bg-slate-700">Letiltás</button>}
                       {p.account === "disabled" && <button onClick={() => reactivateEmp(p.id)} className="text-xs px-2 py-1 rounded bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25">Visszaállítás</button>}
+                      <button onClick={() => openEmpDesk(p)} className="text-xs px-2 py-1 ml-1 rounded bg-slate-700/40 text-slate-300 hover:bg-slate-700 align-middle"><Pencil className="w-3.5 h-3.5" /></button>
                     </td>
                   </tr>))}</tbody>
               </table>
             </div>
           </div>); })}
         {rows.length === 0 && <div className="text-sm text-slate-500 border border-dashed border-slate-700 rounded-xl p-8 text-center">Még nincs dolgozó. Vedd fel őket a „Tömeges felvétel" gombbal.</div>}
+
+        {empEditDesk && (
+          <div className="fixed inset-0 z-50 bg-slate-950/80 flex items-center justify-center p-6" onClick={() => setEmpEditDesk(null)}>
+            <div className="w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl p-5 space-y-3.5" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between"><div className="text-base font-semibold text-white">{empEditDesk.id == null ? "Új dolgozó" : "Dolgozó szerkesztése"}</div><button onClick={() => setEmpEditDesk(null)} className="text-slate-400 hover:text-white"><X className="w-5 h-5" /></button></div>
+              <div><div className="text-xs text-slate-400 mb-1">Teljes név</div><input value={empEditDesk.name} onChange={(e) => setEmpEditDesk((s) => ({ ...s, name: e.target.value }))} className="w-full bg-slate-800/60 border border-slate-700/60 rounded-lg p-2.5 text-sm text-slate-100 outline-none focus:border-slate-500" /></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><div className="text-xs text-slate-400 mb-1">Részleg</div><select value={empEditDesk.dept} onChange={(e) => setEmpEditDesk((s) => ({ ...s, dept: e.target.value }))} className="w-full bg-slate-800/60 border border-slate-700/60 rounded-lg p-2.5 text-sm text-slate-100 outline-none">{[...OPS_DEPTS, "office"].map((d) => <option key={d} value={d} className="bg-slate-800">{deptLabel(d)}</option>)}</select></div>
+                <div><div className="text-xs text-slate-400 mb-1">Szint</div><select value={empEditDesk.level} onChange={(e) => setEmpEditDesk((s) => ({ ...s, level: e.target.value }))} className="w-full bg-slate-800/60 border border-slate-700/60 rounded-lg p-2.5 text-sm text-slate-100 outline-none"><option value="employee" className="bg-slate-800">Alkalmazott</option><option value="manager" className="bg-slate-800">Részlegvezető</option></select></div>
+              </div>
+              <div><div className="text-xs text-slate-400 mb-1">Munkakör</div><input value={empEditDesk.role} onChange={(e) => setEmpEditDesk((s) => ({ ...s, role: e.target.value }))} placeholder="pl. Felszolgáló" className="w-full bg-slate-800/60 border border-slate-700/60 rounded-lg p-2.5 text-sm text-slate-100 outline-none focus:border-slate-500" /></div>
+              <div>
+                <div className="text-xs text-slate-400 mb-1">Bérezés</div>
+                <div className="flex gap-2 mb-2">{[["hourly", "Órabér"], ["monthly", "Havi fix"]].map(([id, lab]) => { const on = empEditDesk.payType === id; return <button key={id} onClick={() => setEmpEditDesk((s) => ({ ...s, payType: id }))} className={`flex-1 text-sm py-2 rounded-lg border transition ${on ? "bg-amber-500/10 border-amber-400/50 text-amber-200" : "bg-slate-800/60 border-slate-700/60 text-slate-300"}`}>{lab}</button>; })}</div>
+                {empEditDesk.payType === "hourly"
+                  ? <div className="flex items-center gap-2"><input type="number" inputMode="numeric" value={empEditDesk.rate} onChange={(e) => setEmpEditDesk((s) => ({ ...s, rate: e.target.value }))} className="w-full bg-slate-800/60 border border-slate-700/60 rounded-lg p-2.5 text-sm text-slate-100 outline-none focus:border-slate-500" /><span className="text-xs text-slate-500 whitespace-nowrap">Ft / óra</span></div>
+                  : <div className="flex items-center gap-2"><input type="number" inputMode="numeric" value={empEditDesk.salary} onChange={(e) => setEmpEditDesk((s) => ({ ...s, salary: e.target.value }))} className="w-full bg-slate-800/60 border border-slate-700/60 rounded-lg p-2.5 text-sm text-slate-100 outline-none focus:border-slate-500" /><span className="text-xs text-slate-500 whitespace-nowrap">Ft / hó</span></div>}
+              </div>
+              <div className="flex gap-2 pt-1">
+                <button onClick={saveEmpDesk} className="flex-1 py-2.5 rounded-lg text-white font-medium" style={{ background: BRAND.red }}>{empEditDesk.id == null ? "Felvesz" : "Mentés"}</button>
+                {empEditDesk.id != null && <button onClick={() => setEmpDeleteConfirm(empEditDesk.id)} className="px-3 py-2.5 rounded-lg bg-rose-500/15 text-rose-300 hover:bg-rose-500/25"><Trash2 className="w-4 h-4" /></button>}
+                <button onClick={() => setEmpEditDesk(null)} className="px-4 py-2.5 rounded-lg bg-slate-800 text-slate-300">Mégse</button>
+              </div>
+              {empEditDesk.id == null && <div className="text-[11px] text-slate-600">Felvétel után „aktiválásra vár" lesz — a listából a „Kód" gombbal adsz neki aktiváló kódot.</div>}
+            </div>
+          </div>
+        )}
+
+        {empDeleteConfirm != null && (
+          <div className="fixed inset-0 z-[60] bg-slate-950/80 flex items-center justify-center p-6" onClick={() => setEmpDeleteConfirm(null)}>
+            <div className="w-full max-w-sm bg-slate-900 border border-slate-700 rounded-2xl p-5 space-y-3" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center gap-2 text-rose-300 font-semibold"><AlertTriangle className="w-5 h-5" /> Dolgozó törlése</div>
+              <div className="text-sm text-slate-300">Biztosan törlöd: <b>{emp(empDeleteConfirm)?.name}</b>? Kikerül a névsorból; a korábbi bélyegzései az óra-adatokban megmaradnak. Nem vonható vissza.</div>
+              <div className="flex gap-2 pt-1"><button onClick={() => deletePersonDesk(empDeleteConfirm)} className="flex-1 py-2.5 rounded-lg bg-rose-600 text-white font-medium hover:bg-rose-500">Törlés</button><button onClick={() => setEmpDeleteConfirm(null)} className="px-4 py-2.5 rounded-lg bg-slate-800 text-slate-300">Mégse</button></div>
+            </div>
+          </div>
+        )}
 
         {adminWipeConfirm && (
           <div className="fixed inset-0 z-50 bg-slate-950/80 flex items-center justify-center p-6" onClick={() => setAdminWipeConfirm(false)}>
@@ -1410,16 +1483,73 @@ export default function App() {
       flash("Letöltés: " + filename, "ok");
     } catch { flash("A letöltés nem sikerült.", "warn"); }
   }
-  function periodHours() {
-    const [fy, fm, fd] = expFrom.split("-").map(Number);
-    const [ty, tm, td] = expTo.split("-").map(Number);
-    const fromMs = new Date(fy, fm - 1, fd).getTime();
-    const toMs = new Date(ty, tm - 1, td, 23, 59, 59, 999).getTime();
+  function hoursRows(fromMs, toMs) {
     const map = {};
     entries.filter((e) => e.date >= fromMs && e.date <= toMs).forEach((e) => { map[e.employeeId] = (map[e.employeeId] || 0) + paidMs(e); });
     return Object.entries(map).map(([id, ms]) => { const p = emp(Number(id)); return { id: Number(id), name: p ? p.name : "#" + id, dept: p ? p.dept : "", role: p ? p.role : "", rate: p ? p.rate : 0, ms }; })
       .filter((r) => r.ms > 0)
       .sort((a, b) => (a.dept || "").localeCompare(b.dept || "") || a.name.localeCompare(b.name, "hu"));
+  }
+  function periodHours() {
+    const [fy, fm, fd] = expFrom.split("-").map(Number);
+    const [ty, tm, td] = expTo.split("-").map(Number);
+    return hoursRows(new Date(fy, fm - 1, fd).getTime(), new Date(ty, tm - 1, td, 23, 59, 59, 999).getTime());
+  }
+  function HoursAdminDesktop() {
+    const pad2 = (n) => String(n).padStart(2, "0");
+    const dateStr = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+    const hd = (ms) => (ms / 3600000).toFixed(2);
+    const modes = [["day", "Nap"], ["week", "Hét"], ["month", "Hónap"]];
+    const [wy, wm, wd] = hoursWeek.split("-").map(Number);
+    const wOff = (new Date(wy, wm - 1, wd).getDay() + 6) % 7;
+    const mon = new Date(wy, wm - 1, wd - wOff);
+    const wkFrom = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate()).getTime();
+    const wkTo = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 6, 23, 59, 59, 999).getTime();
+    const [my, mm] = hoursMonth.split("-").map(Number);
+    const moFrom = new Date(my, mm - 1, 1).getTime();
+    const moTo = new Date(my, mm, 0, 23, 59, 59, 999).getTime();
+    const summaryRows = hoursMode === "week" ? hoursRows(wkFrom, wkTo) : hoursMode === "month" ? hoursRows(moFrom, moTo) : [];
+    const totalMs = summaryRows.reduce((s, r) => s + r.ms, 0);
+    const grouped = [...OPS_DEPTS, "office"].map((dep) => ({ dep, rows: summaryRows.filter((r) => r.dept === dep) })).filter((g) => g.rows.length);
+    const shiftWeek = (delta) => { const nd = new Date(wy, wm - 1, wd + delta * 7); setHoursWeek(`${nd.getFullYear()}-${pad2(nd.getMonth() + 1)}-${pad2(nd.getDate())}`); };
+    const exportSummary = () => {
+      const head = hoursMode === "week" ? `Heti óraösszesítő;${dateStr(new Date(wkFrom))} – ${dateStr(new Date(wkTo))}` : `Havi óraösszesítő;${hoursMonth}`;
+      const csv = [head, "Név;Részleg;Munkakör;Ledolgozott óra", ...summaryRows.map((r) => `${r.name};${deptLabel(r.dept)};${r.role};${hd(r.ms)}`), `Összesen;;;${hd(totalMs)}`].join("\n");
+      downloadCsv(`${hoursMode === "week" ? "heti" : "havi"}-orak_${hoursMode === "week" ? dateStr(new Date(wkFrom)) : hoursMonth}.csv`, csv);
+    };
+    return (
+      <div className="space-y-4">
+        <div className="inline-flex rounded-lg bg-slate-800/60 p-1">{modes.map(([id, lab]) => { const on = hoursMode === id; return <button key={id} onClick={() => setHoursMode(id)} className={`text-sm px-4 py-1.5 rounded-md transition ${on ? "bg-slate-700 text-white" : "text-slate-400 hover:text-slate-200"}`}>{lab}</button>; })}</div>
+        {hoursMode === "day" && DailyHoursSection()}
+        {hoursMode !== "day" && (<div className="space-y-4">
+          <div className="flex items-center gap-3 flex-wrap">
+            {hoursMode === "week" ? (<>
+              <button onClick={() => shiftWeek(-1)} className="p-2 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"><ChevronLeft className="w-4 h-4" /></button>
+              <div className="text-sm text-slate-200 tabular-nums">{dateStr(new Date(wkFrom))} – {dateStr(new Date(wkTo))}</div>
+              <button onClick={() => shiftWeek(1)} className="p-2 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"><ChevronRight className="w-4 h-4" /></button>
+            </>) : (
+              <input type="month" value={hoursMonth} onChange={(e) => setHoursMonth(e.target.value)} className="bg-slate-800/60 border border-slate-700/60 rounded-lg px-2.5 py-2 text-sm text-slate-200 outline-none" />
+            )}
+            <button onClick={exportSummary} disabled={!summaryRows.length} className="ml-auto flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-sky-500 text-white font-medium hover:bg-sky-600 disabled:opacity-40"><Download className="w-3.5 h-3.5" /> CSV</button>
+          </div>
+          {summaryRows.length === 0 ? <div className="text-sm text-slate-500 border border-dashed border-slate-700 rounded-xl p-8 text-center">Ebben az időszakban nincs rögzített munkaidő.</div> : (
+            <div className="space-y-4">
+              {grouped.map((g) => { const sub = g.rows.reduce((s, r) => s + r.ms, 0); return (
+                <div key={g.dep}>
+                  <div className="text-xs text-slate-500 mb-1.5">{deptLabel(g.dep)} · {g.rows.length} fő · {hd(sub)} óra</div>
+                  <div className="border border-slate-800 rounded-xl overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="text-[11px] text-slate-500 bg-slate-800/40"><tr><th className="text-left px-3 py-2">Név</th><th className="text-left px-3 py-2">Munkakör</th><th className="text-right px-3 py-2">Ledolgozott óra</th></tr></thead>
+                      <tbody>{g.rows.map((r) => (<tr key={r.id} className="border-t border-slate-800/60"><td className="px-3 py-2 text-slate-200">{r.name}</td><td className="px-3 py-2 text-slate-400">{r.role}</td><td className="px-3 py-2 text-right text-slate-100 font-medium tabular-nums">{hd(r.ms)}</td></tr>))}</tbody>
+                    </table>
+                  </div>
+                </div>); })}
+              <div className="flex justify-between items-center px-1 pt-1"><span className="text-sm text-slate-400">Összesen · {summaryRows.length} fő</span><span className="text-lg font-bold text-amber-300">{hd(totalMs)} óra</span></div>
+            </div>
+          )}
+        </div>)}
+      </div>
+    );
   }
   function ExportsAdminDesktop() {
     const pad2 = (n) => String(n).padStart(2, "0");
@@ -1428,11 +1558,16 @@ export default function App() {
     const rows = periodHours();
     const totalMs = rows.reduce((s, r) => s + r.ms, 0);
     const totalCost = rows.reduce((s, r) => s + (r.ms / 3600000) * r.rate, 0);
+    const hMap = {}; rows.forEach((r) => { hMap[r.id] = r.ms; });
+    const wageRows = people.filter((p) => (p.level === "employee" || p.level === "manager") && p.account !== "disabled")
+      .map((p) => { const ms = hMap[p.id] || 0; const monthly = p.payType === "monthly"; const cost = monthly ? (p.salary || 0) : Math.round((ms / 3600000) * (p.rate || 0)); return { p, ms, monthly, cost }; })
+      .sort((a, b) => (a.p.dept || "").localeCompare(b.p.dept || "") || a.p.name.localeCompare(b.p.name, "hu"));
+    const wageTotal = wageRows.reduce((s, w) => s + w.cost, 0);
     const rangeLabel = `${expFrom} – ${expTo}`;
     const weekShifts = shifts.filter((s) => (s.weekOffset ?? 0) === 0).slice().sort((a, b) => a.dayIndex - b.dayIndex || a.start.localeCompare(b.start));
     const unitLabel = (u) => (u === "butcher" ? "Butcher" : "Pastamore");
     const exportHours = () => downloadCsv(`ora-export_${expFrom}_${expTo}.csv`, [`Óra-export;${rangeLabel}`, "Név;Részleg;Munkakör;Ledolgozott óra", ...rows.map((r) => `${r.name};${deptLabel(r.dept)};${r.role};${hd(r.ms)}`), `Összesen;;;${hd(totalMs)}`].join("\n"));
-    const exportWages = () => downloadCsv(`ber-export_${expFrom}_${expTo}.csv`, [`Bér-export;${rangeLabel}`, "Név;Részleg;Munkakör;Órabér;Ledolgozott óra;Bérköltség", ...rows.map((r) => `${r.name};${deptLabel(r.dept)};${r.role};${r.rate};${hd(r.ms)};${Math.round((r.ms / 3600000) * r.rate)}`), `Összesen;;;;${hd(totalMs)};${Math.round(totalCost)}`].join("\n"));
+    const exportWages = () => downloadCsv(`ber-export_${expFrom}_${expTo}.csv`, [`Bér-export;${rangeLabel}`, "Név;Részleg;Munkakör;Bérezés;Órabér/Havi fix;Ledolgozott óra;Bérköltség", ...wageRows.map((w) => `${w.p.name};${deptLabel(w.p.dept)};${w.p.role};${w.monthly ? "Havi fix" : "Órabér"};${w.monthly ? (w.p.salary || 0) : (w.p.rate || 0)};${hd(w.ms)};${w.cost}`), `Összesen;;;;;${hd(totalMs)};${wageTotal}`, "Megj.: a havi fixesnél a Bérköltség a teljes havi összeg (nem időarányos)."].join("\n"));
     const exportSchedule = () => downloadCsv(`beosztas_${dateStr(weekDates[0])}.csv`, [`Beosztás;${dateStr(weekDates[0])} – ${dateStr(weekDates[6])}`, "Dátum;Nap;Dolgozó;Részleg;Kezdés;Vége;Egység", ...weekShifts.map((s) => { const d = weekDates[s.dayIndex]; const p = emp(s.employeeId); return `${dateStr(d)};${DAYS_FULL[s.dayIndex]};${p ? p.name : "#" + s.employeeId};${p ? deptLabel(p.dept) : ""};${s.start};${s.end};${unitLabel(s.unit)}`; })].join("\n"));
     const ExportCard = ({ icon: I, title, desc, onClick, disabled }) => (
       <button onClick={onClick} disabled={disabled} className="text-left bg-slate-900/60 border border-slate-800 rounded-xl p-4 hover:border-slate-600 transition disabled:opacity-40 disabled:hover:border-slate-800">
@@ -1448,7 +1583,7 @@ export default function App() {
           <div className="flex items-center gap-3 flex-wrap">
             <label className="text-xs text-slate-400 flex items-center gap-2">Tól <input type="date" value={expFrom} onChange={(e) => setExpFrom(e.target.value)} className="bg-slate-800/60 border border-slate-700/60 rounded-lg px-2.5 py-2 text-sm text-slate-200 outline-none" /></label>
             <label className="text-xs text-slate-400 flex items-center gap-2">Ig <input type="date" value={expTo} onChange={(e) => setExpTo(e.target.value)} className="bg-slate-800/60 border border-slate-700/60 rounded-lg px-2.5 py-2 text-sm text-slate-200 outline-none" /></label>
-            <div className="ml-auto text-xs text-slate-500">{rows.length} fő · {hd(totalMs)} óra · {ft(totalCost)}</div>
+            <div className="ml-auto text-xs text-slate-500">{rows.length} fő dolgozott · {hd(totalMs)} óra · bérköltség {ft(wageTotal)}</div>
           </div>
         </div>
         <div className="grid md:grid-cols-3 gap-3">
@@ -1511,7 +1646,7 @@ export default function App() {
                 </div>
                 <div className="text-xs text-slate-500">A számok élőben frissülnek a telefonos appal közös adatból.</div>
               </div>)}
-              {adminNav === "hours" && DailyHoursSection()}
+              {adminNav === "hours" && HoursAdminDesktop()}
               {adminNav === "people" && PeopleAdminDesktop()}
               {adminNav === "schedule" && <Soon label="Beosztás — cégszintű nézet" />}
               {adminNav === "sanctions" && <Soon label="Szankciók — áttekintés" />}
