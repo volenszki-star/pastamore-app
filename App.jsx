@@ -395,7 +395,10 @@ export default function App() {
     (async () => {
       try {
         const { db } = await import("./firebase.js");
+        const { getAuth, signInAnonymously } = await import("firebase/auth");
         const { doc, getDoc, setDoc } = await import("firebase/firestore");
+        if (cancelled) return;
+        await signInAnonymously(getAuth()); // névtelen bejelentkezés a hozzáférés előtt
         if (cancelled) return;
         fbRef.current = { db, doc, setDoc };
         const ref = doc(db, "state", "main");
