@@ -680,7 +680,7 @@ export default function App() {
   function saveEmp() {
     const e = empEdit; if (!e.name.trim()) { flash("Adj meg egy nevet.", "warn"); return; }
     const level = roleLevel(e.role);
-    const home = roleDept(e.role) ?? e.dept;
+    const home = e.dept ?? roleDept(e.role);
     const depts = level === "employee" ? [home] : ((e.depts || []).filter((d) => OPS_DEPTS.includes(d)).length ? e.depts.filter((d) => OPS_DEPTS.includes(d)) : (OPS_DEPTS.includes(home) ? [home] : OPS_DEPTS.slice()));
     const norm = { ...e, name: e.name.trim(), level, dept: home, depts, rate: Number(e.rate) || 0, specialty: level === "employee" ? e.specialty : null };
     if (e.id == null) { const id = Math.max(0, ...people.map((p) => p.id)) + 1; setPeople((p) => [...p, { ...norm, id }]); flash(`Felvéve: ${norm.name}.`, "ok"); }
@@ -1360,7 +1360,7 @@ export default function App() {
     flash("Tiszta indítás kész — a demó adatok törölve.", "ok");
   }
   function PeopleAdminDesktop() {
-    const rows = people.filter((p) => p.level === "employee" || p.level === "manager");
+    const rows = people.filter((p) => p.level === "employee" || p.level === "manager" || p.level === "admin");
     const byDept = [...OPS_DEPTS, "office"].filter((d) => rows.some((r) => r.dept === d));
     const statusBadge = (acc) => acc === "active"
       ? <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300">Aktív</span>
@@ -1368,7 +1368,9 @@ export default function App() {
       ? <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300">Aktiválásra vár</span>
       : <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-600/30 text-slate-400">Letiltva</span>;
     const payStr = (p) => (p.payType === "monthly") ? `${(p.salary || 0).toLocaleString("hu-HU")} Ft/hó` : `${(p.rate || 0).toLocaleString("hu-HU")} Ft/ó`;
-    const levelBadge = (lv) => lv === "manager"
+    const levelBadge = (lv) => lv === "admin"
+      ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-300">Admin</span>
+      : lv === "manager"
       ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300">Részlegvezető</span>
       : <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-600/30 text-slate-400">Alkalmazott</span>;
     return (
@@ -1436,7 +1438,7 @@ export default function App() {
               <div><div className="text-xs text-slate-400 mb-1">Teljes név</div><input value={empEditDesk.name} onChange={(e) => setEmpEditDesk((s) => ({ ...s, name: e.target.value }))} className="w-full bg-slate-800/60 border border-slate-700/60 rounded-lg p-2.5 text-sm text-slate-100 outline-none focus:border-slate-500" /></div>
               <div className="grid grid-cols-2 gap-3">
                 <div><div className="text-xs text-slate-400 mb-1">Részleg</div><select value={empEditDesk.dept} onChange={(e) => setEmpEditDesk((s) => ({ ...s, dept: e.target.value }))} className="w-full bg-slate-800/60 border border-slate-700/60 rounded-lg p-2.5 text-sm text-slate-100 outline-none">{[...OPS_DEPTS, "office"].map((d) => <option key={d} value={d} className="bg-slate-800">{deptLabel(d)}</option>)}</select></div>
-                <div><div className="text-xs text-slate-400 mb-1">Szint</div><select value={empEditDesk.level} onChange={(e) => setEmpEditDesk((s) => ({ ...s, level: e.target.value }))} className="w-full bg-slate-800/60 border border-slate-700/60 rounded-lg p-2.5 text-sm text-slate-100 outline-none"><option value="employee" className="bg-slate-800">Alkalmazott</option><option value="manager" className="bg-slate-800">Részlegvezető</option></select></div>
+                <div><div className="text-xs text-slate-400 mb-1">Szint</div><select value={empEditDesk.level} onChange={(e) => setEmpEditDesk((s) => ({ ...s, level: e.target.value }))} className="w-full bg-slate-800/60 border border-slate-700/60 rounded-lg p-2.5 text-sm text-slate-100 outline-none"><option value="employee" className="bg-slate-800">Alkalmazott</option><option value="manager" className="bg-slate-800">Részlegvezető</option><option value="admin" className="bg-slate-800">Admin</option></select></div>
               </div>
               <div><div className="text-xs text-slate-400 mb-1">Munkakör</div><input value={empEditDesk.role} onChange={(e) => setEmpEditDesk((s) => ({ ...s, role: e.target.value }))} placeholder="pl. Felszolgáló" className="w-full bg-slate-800/60 border border-slate-700/60 rounded-lg p-2.5 text-sm text-slate-100 outline-none focus:border-slate-500" /></div>
               <div>
