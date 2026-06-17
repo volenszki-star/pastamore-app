@@ -8,6 +8,13 @@ import {
   Soup, Pizza, Flame, Salad, Croissant, Users, UserPlus, Briefcase, Beer, Lock
 } from "lucide-react";
 
+// kulcssorrend-független, stabil JSON (echo-szűréshez az élő szinkronnál)
+function stableStr(v) {
+  if (Array.isArray(v)) return "[" + v.map(stableStr).join(",") + "]";
+  if (v && typeof v === "object") return "{" + Object.keys(v).sort().map((k) => JSON.stringify(k) + ":" + stableStr(v[k])).join(",") + "}";
+  return JSON.stringify(v);
+}
+
 /* ---------------- Törzsadatok ---------------- */
 const RESTAURANT = { name: "DOB 18 GASTRO", lat: 47.4979, lng: 19.0402, radius: 120, qr: "DOB18-GASTRO-CLOCKIN" };
 // Admin felület a mobilappban. false = az admin/gazdasági szerep kikerül a felületről (külön PC-s back-office),
@@ -375,6 +382,7 @@ export default function App() {
   const histRef = useRef([]);
   const fbRef = useRef(null);
   const saveTimer = useRef(null);
+  const lastSyncedRef = useRef(null);
   const lastTabRef = useRef("central");
   const goingBackRef = useRef(false);
 
@@ -390,51 +398,65 @@ export default function App() {
   function collectState() {
     return JSON.parse(JSON.stringify({ people, roles, blocks, shifts, entries, swaps, sanctions, timeOff, announcements, dutyManagers, offDefaultCap, offCaps, activationCodes }));
   }
+  function applyState(d) {
+    if (d.people) setPeople(d.people);
+    if (d.roles) setRoles(d.roles);
+    if (d.blocks) setBlocks(d.blocks);
+    if (d.shifts) setShifts(d.shifts);
+    if (d.entries) setEntries(d.entries);
+    if (d.swaps) setSwaps(d.swaps);
+    if (d.sanctions) setSanctions(d.sanctions);
+    if (d.timeOff) setTimeOff(d.timeOff);
+    if (d.announcements) setAnnouncements(d.announcements);
+    if (d.dutyManagers) setDutyManagers(d.dutyManagers);
+    if (typeof d.offDefaultCap === "number") setOffDefaultCap(d.offDefaultCap);
+    if (d.offCaps) setOffCaps(d.offCaps);
+    if (d.activationCodes) setActivationCodes(d.activationCodes);
+  }
   useEffect(() => {
-    let cancelled = false;
+    let cancelled = false; let unsub = null;
     (async () => {
       try {
         const { db } = await import("./firebase.js");
         const { getAuth, signInAnonymously } = await import("firebase/auth");
-        const { doc, getDoc, setDoc } = await import("firebase/firestore");
+        const { doc, getDoc, setDoc, onSnapshot } = await import("firebase/firestore");
         if (cancelled) return;
         await signInAnonymously(getAuth()); // névtelen bejelentkezés a hozzáférés előtt
         if (cancelled) return;
         fbRef.current = { db, doc, setDoc };
         const ref = doc(db, "state", "main");
-        const snap = await getDoc(ref);
+        const first = await getDoc(ref);
         if (cancelled) return;
-        if (snap.exists()) {
-          const d = snap.data();
-          if (d.people) setPeople(d.people);
-          if (d.roles) setRoles(d.roles);
-          if (d.blocks) setBlocks(d.blocks);
-          if (d.shifts) setShifts(d.shifts);
-          if (d.entries) setEntries(d.entries);
-          if (d.swaps) setSwaps(d.swaps);
-          if (d.sanctions) setSanctions(d.sanctions);
-          if (d.timeOff) setTimeOff(d.timeOff);
-          if (d.announcements) setAnnouncements(d.announcements);
-          if (d.dutyManagers) setDutyManagers(d.dutyManagers);
-          if (typeof d.offDefaultCap === "number") setOffDefaultCap(d.offDefaultCap);
-          if (d.offCaps) setOffCaps(d.offCaps);
-          if (d.activationCodes) setActivationCodes(d.activationCodes);
-        } else {
-          await setDoc(ref, collectState()); // első indítás: az aktuális (seed) állapot mentése
+        if (!first.exists()) {
+          const seed = collectState();
+          lastSyncedRef.current = stableStr(seed);
+          await setDoc(ref, seed); // első indítás: az aktuális (seed) állapot mentése
         }
+        // élő figyelő: másik eszköz változtatása azonnal megjelenik
+        unsub = onSnapshot(ref, (ds) => {
+          if (!ds.exists() || ds.metadata.hasPendingWrites) return; // saját, még visszaigazolatlan írás
+          const data = ds.data();
+          const j = stableStr(data);
+          if (j === lastSyncedRef.current) return; // saját írás visszhangja
+          lastSyncedRef.current = j;
+          applyState(data);
+        });
       } catch (e) {
         console.warn("Firestore nem elérhető — helyi adatokkal futunk.", e);
       } finally {
         if (!cancelled) setLoaded(true);
       }
     })();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; if (unsub) unsub(); };
   }, []);
   useEffect(() => {
     if (!loaded || !fbRef.current) return;
     const snapshot = collectState();
+    const j = stableStr(snapshot);
+    if (j === lastSyncedRef.current) return; // nincs valódi változás a szinkronizálthoz képest
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
+      lastSyncedRef.current = j;
       const { db, doc, setDoc } = fbRef.current;
       setDoc(doc(db, "state", "main"), snapshot).catch((e) => console.warn("Mentés hiba:", e));
     }, 800);
