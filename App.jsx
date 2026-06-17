@@ -389,6 +389,7 @@ export default function App() {
   const [repWeek, setRepWeek] = useState(() => { const d = new Date(now0); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; });
   const [repMonth, setRepMonth] = useState(() => { const d = new Date(now0); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; });
   const [repRevDate, setRepRevDate] = useState(() => { const d = new Date(now0); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; });
+  const [schedWeek, setSchedWeek] = useState(0);
   const [mgrTeamSub, setMgrTeamSub] = useState("hours");
   const [seenAnn, setSeenAnn] = useState([]);
   const [dutyManagers, setDutyManagers] = useState([{ id: 104, slot: "all" }, { id: 102, slot: "all" }]);
@@ -1702,6 +1703,54 @@ export default function App() {
     );
   }
 
+  function ScheduleAdminDesktop() {
+    const dows = ["Hétfő", "Kedd", "Szerda", "Csütörtök", "Péntek", "Szombat", "Vasárnap"];
+    const dates = weekDatesFor(schedWeek);
+    const fmtD = (d) => `${d.getMonth() + 1}.${d.getDate()}.`;
+    const rangeLabel = `${dates[0].getFullYear()}. ${fmtD(dates[0])} – ${fmtD(dates[6])}`;
+    const weekTag = schedWeek === 0 ? "Aktuális hét" : schedWeek === 1 ? "Következő hét" : schedWeek === -1 ? "Előző hét" : schedWeek > 0 ? `+${schedWeek} hét` : `${schedWeek} hét`;
+    const todayIdx = (new Date(now0).getDay() + 6) % 7;
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          <button onClick={() => setSchedWeek((w) => w - 1)} className="p-2 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"><ChevronLeft className="w-4 h-4" /></button>
+          <div className="text-center min-w-[180px]"><div className="text-sm text-slate-200 font-medium tabular-nums">{rangeLabel}</div><div className="text-[11px] text-slate-500">{weekTag}</div></div>
+          <button onClick={() => setSchedWeek((w) => w + 1)} className="p-2 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"><ChevronRight className="w-4 h-4" /></button>
+          {schedWeek !== 0 && <button onClick={() => setSchedWeek(0)} className="text-xs px-3 py-2 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700">Mai hét</button>}
+        </div>
+
+        <div className="space-y-4">
+          {OPS_DEPTS.map((dep) => {
+            const Icon = (DEPARTMENTS.find((d) => d.id === dep) || {}).icon || ClipboardList;
+            const deptShifts = shifts.filter((s) => (s.weekOffset ?? 0) === schedWeek && empDept(s.employeeId) === dep);
+            return (
+              <div key={dep} className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-3"><Icon className="w-4 h-4 text-slate-300" /><span className="text-sm font-semibold text-slate-200">{deptLabel(dep)}</span><span className="text-xs text-slate-500">{deptShifts.length} műszak</span></div>
+                <div className="grid grid-cols-7 gap-2">
+                  {dows.map((dn, di) => {
+                    const dayShifts = deptShifts.filter((s) => s.dayIndex === di).sort((a, b) => a.start.localeCompare(b.start));
+                    const isToday = schedWeek === 0 && di === todayIdx;
+                    return (
+                      <div key={di} className={`rounded-lg p-2 min-h-[84px] ${isToday ? "bg-slate-800/60 ring-1 ring-slate-600" : "bg-slate-800/25"}`}>
+                        <div className="text-[11px] text-slate-500 mb-1.5">{dn.slice(0, 3)} <span className="text-slate-600">{dates[di].getDate()}.</span></div>
+                        <div className="space-y-1">
+                          {dayShifts.length === 0 ? <div className="text-[10px] text-slate-700">–</div> : dayShifts.map((s) => { const p = emp(s.employeeId); return (
+                            <div key={s.id} className="text-[11px] bg-slate-700/40 rounded px-1.5 py-1 leading-tight">
+                              <div className="text-slate-200 truncate">{p ? shortName(p.name) : "?"}</div>
+                              <div className="text-slate-400 tabular-nums">{s.start}–{s.end}</div>
+                            </div>); })}
+                        </div>
+                      </div>);
+                  })}
+                </div>
+              </div>);
+          })}
+        </div>
+        <div className="text-[11px] text-slate-600">Az aktuális és a következő hét beosztása van feltöltve; korábbi hetek csak akkor mutatnak adatot, ha arra a hétre készült beosztás. A beosztást a részlegvezetők készítik a telefonos appban.</div>
+      </div>
+    );
+  }
+
   function AdminDesktop() {
     const liveEmps = people.filter((p) => p.level === "employee" && p.account !== "disabled");
     const insideNow = entries.filter((e) => e.checkOut == null).length;
@@ -1754,7 +1803,7 @@ export default function App() {
               </div>)}
               {adminNav === "hours" && HoursAdminDesktop()}
               {adminNav === "people" && PeopleAdminDesktop()}
-              {adminNav === "schedule" && <Soon label="Beosztás — cégszintű nézet" />}
+              {adminNav === "schedule" && ScheduleAdminDesktop()}
               {adminNav === "sanctions" && <Soon label="Szankciók — áttekintés" />}
               {adminNav === "reports" && ReportsAdminDesktop()}
               {adminNav === "exports" && ExportsAdminDesktop()}
