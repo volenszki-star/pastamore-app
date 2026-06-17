@@ -376,6 +376,8 @@ export default function App() {
   const [adminImportOpen, setAdminImportOpen] = useState(false);
   const [adminImportText, setAdminImportText] = useState("");
   const [adminWipeConfirm, setAdminWipeConfirm] = useState(false);
+  const [expFrom, setExpFrom] = useState(() => { const d = new Date(now0); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-01`; });
+  const [expTo, setExpTo] = useState(() => { const d = new Date(now0); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; });
   const [mgrTeamSub, setMgrTeamSub] = useState("hours");
   const [seenAnn, setSeenAnn] = useState([]);
   const [dutyManagers, setDutyManagers] = useState([{ id: 104, slot: "all" }, { id: 102, slot: "all" }]);
@@ -1398,6 +1400,67 @@ export default function App() {
     );
   }
 
+  function downloadCsv(filename, text) {
+    try {
+      const blob = new Blob(["\uFEFF" + text], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      flash("Letöltés: " + filename, "ok");
+    } catch { flash("A letöltés nem sikerült.", "warn"); }
+  }
+  function periodHours() {
+    const [fy, fm, fd] = expFrom.split("-").map(Number);
+    const [ty, tm, td] = expTo.split("-").map(Number);
+    const fromMs = new Date(fy, fm - 1, fd).getTime();
+    const toMs = new Date(ty, tm - 1, td, 23, 59, 59, 999).getTime();
+    const map = {};
+    entries.filter((e) => e.date >= fromMs && e.date <= toMs).forEach((e) => { map[e.employeeId] = (map[e.employeeId] || 0) + paidMs(e); });
+    return Object.entries(map).map(([id, ms]) => { const p = emp(Number(id)); return { id: Number(id), name: p ? p.name : "#" + id, dept: p ? p.dept : "", role: p ? p.role : "", rate: p ? p.rate : 0, ms }; })
+      .filter((r) => r.ms > 0)
+      .sort((a, b) => (a.dept || "").localeCompare(b.dept || "") || a.name.localeCompare(b.name, "hu"));
+  }
+  function ExportsAdminDesktop() {
+    const pad2 = (n) => String(n).padStart(2, "0");
+    const dateStr = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+    const hd = (ms) => (ms / 3600000).toFixed(2);
+    const rows = periodHours();
+    const totalMs = rows.reduce((s, r) => s + r.ms, 0);
+    const totalCost = rows.reduce((s, r) => s + (r.ms / 3600000) * r.rate, 0);
+    const rangeLabel = `${expFrom} – ${expTo}`;
+    const weekShifts = shifts.filter((s) => (s.weekOffset ?? 0) === 0).slice().sort((a, b) => a.dayIndex - b.dayIndex || a.start.localeCompare(b.start));
+    const unitLabel = (u) => (u === "butcher" ? "Butcher" : "Pastamore");
+    const exportHours = () => downloadCsv(`ora-export_${expFrom}_${expTo}.csv`, [`Óra-export;${rangeLabel}`, "Név;Részleg;Munkakör;Ledolgozott óra", ...rows.map((r) => `${r.name};${deptLabel(r.dept)};${r.role};${hd(r.ms)}`), `Összesen;;;${hd(totalMs)}`].join("\n"));
+    const exportWages = () => downloadCsv(`ber-export_${expFrom}_${expTo}.csv`, [`Bér-export;${rangeLabel}`, "Név;Részleg;Munkakör;Órabér;Ledolgozott óra;Bérköltség", ...rows.map((r) => `${r.name};${deptLabel(r.dept)};${r.role};${r.rate};${hd(r.ms)};${Math.round((r.ms / 3600000) * r.rate)}`), `Összesen;;;;${hd(totalMs)};${Math.round(totalCost)}`].join("\n"));
+    const exportSchedule = () => downloadCsv(`beosztas_${dateStr(weekDates[0])}.csv`, [`Beosztás;${dateStr(weekDates[0])} – ${dateStr(weekDates[6])}`, "Dátum;Nap;Dolgozó;Részleg;Kezdés;Vége;Egység", ...weekShifts.map((s) => { const d = weekDates[s.dayIndex]; const p = emp(s.employeeId); return `${dateStr(d)};${DAYS_FULL[s.dayIndex]};${p ? p.name : "#" + s.employeeId};${p ? deptLabel(p.dept) : ""};${s.start};${s.end};${unitLabel(s.unit)}`; })].join("\n"));
+    const ExportCard = ({ icon: I, title, desc, onClick, disabled }) => (
+      <button onClick={onClick} disabled={disabled} className="text-left bg-slate-900/60 border border-slate-800 rounded-xl p-4 hover:border-slate-600 transition disabled:opacity-40 disabled:hover:border-slate-800">
+        <div className="flex items-center gap-2 mb-2"><I className="w-5 h-5 text-sky-400" /><span className="text-sm font-medium text-slate-200">{title}</span></div>
+        <div className="text-xs text-slate-500 mb-3">{desc}</div>
+        <div className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-sky-500/15 text-sky-300"><Download className="w-3.5 h-3.5" /> CSV letöltése</div>
+      </button>
+    );
+    return (
+      <div className="space-y-5">
+        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+          <div className="text-sm font-medium text-slate-200 mb-3">Időszak (óra- és bér-exporthoz)</div>
+          <div className="flex items-center gap-3 flex-wrap">
+            <label className="text-xs text-slate-400 flex items-center gap-2">Tól <input type="date" value={expFrom} onChange={(e) => setExpFrom(e.target.value)} className="bg-slate-800/60 border border-slate-700/60 rounded-lg px-2.5 py-2 text-sm text-slate-200 outline-none" /></label>
+            <label className="text-xs text-slate-400 flex items-center gap-2">Ig <input type="date" value={expTo} onChange={(e) => setExpTo(e.target.value)} className="bg-slate-800/60 border border-slate-700/60 rounded-lg px-2.5 py-2 text-sm text-slate-200 outline-none" /></label>
+            <div className="ml-auto text-xs text-slate-500">{rows.length} fő · {hd(totalMs)} óra · {ft(totalCost)}</div>
+          </div>
+        </div>
+        <div className="grid md:grid-cols-3 gap-3">
+          <ExportCard icon={ClipboardList} title="Óra-export" desc="Ledolgozott órák fő/részleg szerint az időszakra." onClick={exportHours} disabled={!rows.length} />
+          <ExportCard icon={Banknote} title="Bér-export" desc="Órák × órabér, bérköltséggel, az időszakra." onClick={exportWages} disabled={!rows.length} />
+          <ExportCard icon={CalendarDays} title="Beosztás-export" desc={`Az aktuális hét beosztása (${weekShifts.length} műszak).`} onClick={exportSchedule} disabled={!weekShifts.length} />
+        </div>
+        <div className="text-[11px] text-slate-600">A fájlok pontosvesszős CSV-k UTF-8 jelöléssel — Excel/Sheets ékezethelyesen nyitja. Az órák tizedesben (nettó, szünet nélkül), a bér nyers számként.</div>
+      </div>
+    );
+  }
+
   function AdminDesktop() {
     const liveEmps = people.filter((p) => p.level === "employee" && p.account !== "disabled");
     const insideNow = entries.filter((e) => e.checkOut == null).length;
@@ -1453,7 +1516,7 @@ export default function App() {
               {adminNav === "schedule" && <Soon label="Beosztás — cégszintű nézet" />}
               {adminNav === "sanctions" && <Soon label="Szankciók — áttekintés" />}
               {adminNav === "reports" && <Soon label="Riportok — munkaóra, bérköltség, Labor Cost%" />}
-              {adminNav === "exports" && <Soon label="Exportok — óra, bér, beosztás" />}
+              {adminNav === "exports" && ExportsAdminDesktop()}
               {adminNav === "settings" && <Soon label="Beállítások — munkakörök, idősávok, keretek, QR, jelszó" />}
             </div>
           </div>
