@@ -5,7 +5,7 @@ import {
   Shield, ChevronRight, ChevronLeft, ChevronDown, Wifi, Scan, Play, CircleDot,
   Gavel, Plus, RotateCcw, ScrollText, ChefHat, Utensils, Wine, Pencil, Bed, Crown, Banknote,
   Home, Megaphone, ClipboardList, Send, Pin, User, GripVertical, Trash2,
-  Soup, Pizza, Flame, Salad, Croissant, Users, UserPlus, Briefcase, Beer, Lock
+  Soup, Pizza, Flame, Salad, Croissant, Users, UserPlus, Briefcase, Beer, Lock, Download, Settings
 } from "lucide-react";
 
 // kulcssorrend-független, stabil JSON (echo-szűréshez az élő szinkronnál)
@@ -20,6 +20,12 @@ const RESTAURANT = { name: "DOB 18 GASTRO", lat: 47.4979, lng: 19.0402, radius: 
 // Admin felület a mobilappban. false = az admin/gazdasági szerep kikerül a felületről (külön PC-s back-office),
 // de a teljes admin-kód a fájlban marad és fejleszthető; bármikor true-ra állítva visszahozható.
 const ADMIN_IN_APP = false;
+
+// Asztali admin back-office: külön URL (/admin) + egyszerű belépési kód.
+// FIGYELEM: a kód a kliensbe kerül (látható, ha valaki belenéz) — ez csak laza védelem;
+// a valódi, személyenkénti zárolás a későbbi B szintű azonosítással jön. Cseréld a sajátodra.
+const ADMIN_PIN = "1809";
+const IS_ADMIN_URL = typeof window !== "undefined" && /^\/admin\/?$/.test(window.location.pathname);
 // Pastamore márka — RAL 3020 (Traffic Red). Az identitás színe; óvatosan, akcentként használjuk.
 const BRAND = { name: "Pastamore", red: "#CC0605", redDark: "#9E0403", soft: "rgba(204,6,5,0.14)", ring: "rgba(204,6,5,0.40)" };
 
@@ -363,6 +369,10 @@ export default function App() {
   const [planSpan, setPlanSpan] = useState(1);
   const [empWorkSub, setEmpWorkSub] = useState("schedule");
   const [adminSub, setAdminSub] = useState("overview");
+  const [adminUnlocked, setAdminUnlocked] = useState(() => { try { return localStorage.getItem("dob18admin") === "1"; } catch { return false; } });
+  const [adminNav, setAdminNav] = useState("dashboard");
+  const [adminPinInput, setAdminPinInput] = useState("");
+  const [adminPinErr, setAdminPinErr] = useState(false);
   const [mgrTeamSub, setMgrTeamSub] = useState("hours");
   const [seenAnn, setSeenAnn] = useState([]);
   const [dutyManagers, setDutyManagers] = useState([{ id: 104, slot: "all" }, { id: 102, slot: "all" }]);
@@ -1252,6 +1262,95 @@ export default function App() {
     );
   }
 
+  /* ====== Asztali admin back-office ====== */
+  function unlockAdmin() {
+    if (adminPinInput === ADMIN_PIN) { setAdminUnlocked(true); setAdminPinInput(""); setAdminPinErr(false); try { localStorage.setItem("dob18admin", "1"); } catch {} }
+    else setAdminPinErr(true);
+  }
+  function lockAdmin() { setAdminUnlocked(false); try { localStorage.removeItem("dob18admin"); } catch {} }
+
+  function AdminLogin() {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 font-sans">
+        <div className="w-full max-w-sm bg-slate-900/70 border border-slate-800 rounded-2xl p-6 space-y-4">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: BRAND.red }}><Crown className="w-5 h-5 text-white" /></div>
+            <div><div className="text-base font-semibold text-white leading-tight">DOB 18 GASTRO</div><div className="text-xs text-slate-500">Admin · back-office</div></div>
+          </div>
+          <div className="text-sm text-slate-400">Add meg a belépési kódot.</div>
+          <input type="password" inputMode="numeric" autoFocus value={adminPinInput} onChange={(e) => { setAdminPinInput(e.target.value); setAdminPinErr(false); }} onKeyDown={(e) => { if (e.key === "Enter") unlockAdmin(); }} placeholder="Kód" className={`w-full bg-slate-800/60 border rounded-xl p-3 text-sm text-slate-100 outline-none ${adminPinErr ? "border-rose-500/60" : "border-slate-700/60 focus:border-slate-500"}`} />
+          {adminPinErr && <div className="text-xs text-rose-400">Hibás kód.</div>}
+          <button onClick={unlockAdmin} className="w-full py-3 rounded-xl text-white font-medium" style={{ background: BRAND.red }}>Belépés</button>
+          <div className="text-[11px] text-slate-600">Egyszerű védelem; a végleges, személyenkénti azonosítás később jön.</div>
+        </div>
+      </div>
+    );
+  }
+
+  function AdminDesktop() {
+    const liveEmps = people.filter((p) => p.level === "employee" && p.account !== "disabled");
+    const insideNow = entries.filter((e) => e.checkOut == null).length;
+    const activeSanc = sanctions.filter((s) => s.status === "active").length;
+    const pSwaps = swaps.filter((w) => w.status === "pending").length;
+    const pOff = timeOff.filter((t) => t.status === "pending").length;
+    const pAct = people.filter((p) => p.account === "pending").length;
+    const nav = [
+      { id: "dashboard", label: "Vezérlőpult", icon: LayoutDashboard },
+      { id: "people", label: "Dolgozók", icon: Users },
+      { id: "schedule", label: "Beosztás", icon: CalendarDays },
+      { id: "hours", label: "Órák & jelenlét", icon: ClipboardList },
+      { id: "sanctions", label: "Szankciók", icon: Gavel },
+      { id: "reports", label: "Riportok", icon: BarChart3 },
+      { id: "exports", label: "Exportok", icon: Download },
+      { id: "settings", label: "Beállítások", icon: Settings },
+    ];
+    const Soon = ({ label }) => (<div className="text-sm text-slate-500 border border-dashed border-slate-700 rounded-2xl p-10 text-center">{label}<div className="text-xs text-slate-600 mt-1">Következő lépésben építjük.</div></div>);
+    const Stat = ({ icon: I, v, l, c }) => (<div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 flex items-center gap-3"><I className={`w-6 h-6 ${c}`} /><div><div className="text-2xl font-bold text-white leading-none">{v}</div><div className="text-xs text-slate-400 mt-1">{l}</div></div></div>);
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex font-sans">
+        <aside className="w-60 shrink-0 border-r border-slate-800 bg-slate-900/50 flex flex-col">
+          <div className="px-4 py-4 border-b border-slate-800 flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: BRAND.red }}><Crown className="w-4 h-4 text-white" /></div>
+            <div><div className="text-sm font-semibold leading-tight">DOB 18 GASTRO</div><div className="text-[11px] text-slate-500">Admin · back-office</div></div>
+          </div>
+          <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
+            {nav.map((n) => { const on = adminNav === n.id; return (
+              <button key={n.id} onClick={() => setAdminNav(n.id)} className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-left transition ${on ? "bg-slate-800 text-white" : "text-slate-400 hover:bg-slate-800/50 hover:text-slate-200"}`}><n.icon className="w-4 h-4" /> {n.label}</button>); })}
+          </nav>
+          <div className="p-2 border-t border-slate-800"><button onClick={lockAdmin} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-400 hover:bg-slate-800/50"><LogOut className="w-4 h-4" /> Kilépés</button></div>
+        </aside>
+        <main className="flex-1 min-w-0 flex flex-col">
+          <header className="h-14 border-b border-slate-800 px-6 flex items-center gap-3">
+            <div className="text-sm font-medium text-slate-200">{nav.find((n) => n.id === adminNav)?.label}</div>
+            <div className="ml-auto flex items-center gap-1.5 text-[11px] text-emerald-400"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Élő szinkron</div>
+          </header>
+          <div className="flex-1 overflow-y-auto p-6">
+            <div className="max-w-5xl mx-auto">
+              {adminNav === "dashboard" && (<div className="space-y-5">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  <Stat icon={CircleDot} v={liveEmps.length} l="Aktív dolgozó" c="text-sky-400" />
+                  <Stat icon={Clock} v={insideNow} l="Most bent" c="text-emerald-400" />
+                  <Stat icon={Gavel} v={activeSanc} l="Aktív szankció" c="text-orange-400" />
+                  <Stat icon={Repeat} v={pSwaps} l="Függő csere" c="text-violet-400" />
+                  <Stat icon={Bed} v={pOff} l="Függő szabadnap" c="text-amber-400" />
+                  <Stat icon={UserPlus} v={pAct} l="Aktiválásra vár" c="text-rose-400" />
+                </div>
+                <div className="text-xs text-slate-500">A számok élőben frissülnek a telefonos appal közös adatból.</div>
+              </div>)}
+              {adminNav === "hours" && DailyHoursSection()}
+              {adminNav === "people" && <Soon label="Dolgozók — teljes törzsadat + tömeges import" />}
+              {adminNav === "schedule" && <Soon label="Beosztás — cégszintű nézet" />}
+              {adminNav === "sanctions" && <Soon label="Szankciók — áttekintés" />}
+              {adminNav === "reports" && <Soon label="Riportok — munkaóra, bérköltség, Labor Cost%" />}
+              {adminNav === "exports" && <Soon label="Exportok — óra, bér, beosztás" />}
+              {adminNav === "settings" && <Soon label="Beállítások — munkakörök, idősávok, keretek, QR, jelszó" />}
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   /* ====== Tabok ====== */
   // Napi óraösszesítő (gazdasági vezető / admin) — iktatható adatsor
   function DailyHoursSection() {
@@ -1570,9 +1669,13 @@ export default function App() {
   const canPrev = calMonth > CUR_MONTH, canNext = calMonth < MAX_MONTH;
   const gotoMonth = (delta) => { const d = new Date(calY, calMo + delta, 1); setCalMonth(dayKey(d)); };
 
+  if (IS_ADMIN_URL && !adminUnlocked) return AdminLogin();
+
   if (!loaded) return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-500 font-sans text-sm">Betöltés…</div>
   );
+
+  if (IS_ADMIN_URL) return AdminDesktop();
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-950 to-slate-900 flex items-start justify-center p-0 sm:p-4 font-sans">
