@@ -383,6 +383,12 @@ export default function App() {
   const [hoursMonth, setHoursMonth] = useState(() => { const d = new Date(now0); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; });
   const [empEditDesk, setEmpEditDesk] = useState(null);
   const [empDeleteConfirm, setEmpDeleteConfirm] = useState(null);
+  const [revenue, setRevenue] = useState({});
+  const [repMode, setRepMode] = useState("month");
+  const [repDate, setRepDate] = useState(() => { const d = new Date(now0); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; });
+  const [repWeek, setRepWeek] = useState(() => { const d = new Date(now0); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; });
+  const [repMonth, setRepMonth] = useState(() => { const d = new Date(now0); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; });
+  const [repRevDate, setRepRevDate] = useState(() => { const d = new Date(now0); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; });
   const [mgrTeamSub, setMgrTeamSub] = useState("hours");
   const [seenAnn, setSeenAnn] = useState([]);
   const [dutyManagers, setDutyManagers] = useState([{ id: 104, slot: "all" }, { id: 102, slot: "all" }]);
@@ -416,7 +422,7 @@ export default function App() {
 
   // --- Firestore perzisztencia: betöltés induláskor, mentés változáskor ---
   function collectState() {
-    return JSON.parse(JSON.stringify({ people, roles, blocks, shifts, entries, swaps, sanctions, timeOff, announcements, dutyManagers, offDefaultCap, offCaps, activationCodes }));
+    return JSON.parse(JSON.stringify({ people, roles, blocks, shifts, entries, swaps, sanctions, timeOff, announcements, dutyManagers, offDefaultCap, offCaps, activationCodes, revenue }));
   }
   function applyState(d) {
     if (d.people) setPeople(d.people);
@@ -432,6 +438,7 @@ export default function App() {
     if (typeof d.offDefaultCap === "number") setOffDefaultCap(d.offDefaultCap);
     if (d.offCaps) setOffCaps(d.offCaps);
     if (d.activationCodes) setActivationCodes(d.activationCodes);
+    if (d.revenue) setRevenue(d.revenue);
   }
   useEffect(() => {
     let cancelled = false; let unsub = null;
@@ -481,7 +488,7 @@ export default function App() {
       setDoc(doc(db, "state", "main"), snapshot).catch((e) => console.warn("Mentés hiba:", e));
     }, 800);
     return () => clearTimeout(saveTimer.current);
-  }, [loaded, people, roles, blocks, shifts, entries, swaps, sanctions, timeOff, announcements, dutyManagers, offDefaultCap, offCaps, activationCodes]);
+  }, [loaded, people, roles, blocks, shifts, entries, swaps, sanctions, timeOff, announcements, dutyManagers, offDefaultCap, offCaps, activationCodes, revenue]);
   useEffect(() => {
     const m = emp(meId);
     setViewDept(m.level === "employee" ? m.dept : m.depts[0]);
@@ -1596,6 +1603,103 @@ export default function App() {
     );
   }
 
+  function laborCost(fromMs, toMs) {
+    const perDept = {}; let total = 0;
+    entries.filter((e) => e.date >= fromMs && e.date <= toMs).forEach((e) => {
+      const p = emp(e.employeeId); if (!p) return;
+      if ((p.payType || "hourly") !== "hourly") return;
+      const c = (paidMs(e) / 3600000) * (p.rate || 0);
+      perDept[p.dept] = (perDept[p.dept] || 0) + c; total += c;
+    });
+    const monthlyStaff = people.filter((p) => (p.level === "employee" || p.level === "manager") && p.account !== "disabled" && p.payType === "monthly");
+    if (monthlyStaff.length) {
+      const start = new Date(fromMs); start.setHours(0, 0, 0, 0);
+      const end = new Date(toMs);
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        const dim = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+        monthlyStaff.forEach((p) => { const c = (p.salary || 0) / dim; perDept[p.dept] = (perDept[p.dept] || 0) + c; total += c; });
+      }
+    }
+    return { total, perDept };
+  }
+  function ReportsAdminDesktop() {
+    const pad2 = (n) => String(n).padStart(2, "0");
+    const dStr = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+    const modes = [["day", "Nap"], ["week", "Hét"], ["month", "Hónap"]];
+    let fromMs, toMs, label;
+    if (repMode === "day") {
+      const [y, m, d] = repDate.split("-").map(Number);
+      fromMs = new Date(y, m - 1, d).getTime(); toMs = new Date(y, m - 1, d, 23, 59, 59, 999).getTime(); label = repDate;
+    } else if (repMode === "week") {
+      const [y, m, d] = repWeek.split("-").map(Number);
+      const off = (new Date(y, m - 1, d).getDay() + 6) % 7; const mon = new Date(y, m - 1, d - off);
+      fromMs = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate()).getTime();
+      toMs = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 6, 23, 59, 59, 999).getTime();
+      label = `${dStr(new Date(fromMs))} – ${dStr(new Date(toMs))}`;
+    } else {
+      const [y, m] = repMonth.split("-").map(Number);
+      fromMs = new Date(y, m - 1, 1).getTime(); toMs = new Date(y, m, 0, 23, 59, 59, 999).getTime(); label = repMonth;
+    }
+    let net = 0, service = 0, tip = 0;
+    { const s = new Date(fromMs); s.setHours(0, 0, 0, 0); const e = new Date(toMs);
+      for (let d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) { const r = revenue[dStr(d)]; if (r) { net += Number(r.net) || 0; service += Number(r.service) || 0; tip += Number(r.tip) || 0; } } }
+    const lc = laborCost(fromMs, toMs);
+    const lcPct = net > 0 ? (lc.total / net) * 100 : null;
+    const deptRows = [...OPS_DEPTS, "office"].map((d) => ({ d, cost: lc.perDept[d] || 0 })).filter((x) => x.cost > 0).sort((a, b) => b.cost - a.cost);
+    const maxDept = Math.max(1, ...deptRows.map((r) => r.cost));
+    const lcColor = lcPct == null ? "text-slate-400" : lcPct <= 30 ? "text-emerald-400" : lcPct <= 40 ? "text-amber-400" : "text-rose-400";
+    const shiftWeek = (delta) => { const [y, m, d] = repWeek.split("-").map(Number); const nd = new Date(y, m - 1, d + delta * 7); setRepWeek(`${nd.getFullYear()}-${pad2(nd.getMonth() + 1)}-${pad2(nd.getDate())}`); };
+    const rev = revenue[repRevDate] || {};
+    const setRev = (f, v) => setRevenue((r) => ({ ...r, [repRevDate]: { ...(r[repRevDate] || {}), [f]: v } }));
+    const StatCard = ({ label: l, value, sub, big, color }) => (<div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4"><div className="text-xs text-slate-400">{l}</div><div className={`${big ? "text-3xl" : "text-xl"} font-bold mt-1 ${color || "text-white"}`}>{value}</div>{sub && <div className="text-[11px] text-slate-500 mt-0.5">{sub}</div>}</div>);
+    return (
+      <div className="space-y-6">
+        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-3">
+          <div className="flex items-center gap-2"><div className="text-sm font-medium text-slate-200">Napi forgalom rögzítése</div><input type="date" value={repRevDate} onChange={(e) => setRepRevDate(e.target.value)} className="ml-auto bg-slate-800/60 border border-slate-700/60 rounded-lg px-2.5 py-1.5 text-sm text-slate-200 outline-none" /></div>
+          <div className="grid grid-cols-3 gap-3">
+            {[["net", "Nettó bevétel"], ["service", "Nettó szervízdíj"], ["tip", "Borravaló"]].map(([f, l]) => (
+              <div key={f}><div className="text-xs text-slate-400 mb-1">{l}</div><div className="flex items-center gap-1.5"><input type="number" inputMode="numeric" value={rev[f] ?? ""} onChange={(e) => setRev(f, e.target.value)} placeholder="0" className="w-full bg-slate-800/60 border border-slate-700/60 rounded-lg p-2.5 text-sm text-slate-100 outline-none focus:border-slate-500" /><span className="text-xs text-slate-500">Ft</span></div></div>
+            ))}
+          </div>
+          <div className="text-[11px] text-slate-600">A mentés automatikus — amit ide beírsz, rögtön rögzül és szinkronizál.</div>
+        </div>
+
+        <div className="space-y-4">
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="inline-flex rounded-lg bg-slate-800/60 p-1">{modes.map(([id, l]) => { const on = repMode === id; return <button key={id} onClick={() => setRepMode(id)} className={`text-sm px-4 py-1.5 rounded-md transition ${on ? "bg-slate-700 text-white" : "text-slate-400 hover:text-slate-200"}`}>{l}</button>; })}</div>
+            {repMode === "day" && <input type="date" value={repDate} onChange={(e) => setRepDate(e.target.value)} className="bg-slate-800/60 border border-slate-700/60 rounded-lg px-2.5 py-2 text-sm text-slate-200 outline-none" />}
+            {repMode === "week" && (<div className="flex items-center gap-2"><button onClick={() => shiftWeek(-1)} className="p-2 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"><ChevronLeft className="w-4 h-4" /></button><span className="text-sm text-slate-200 tabular-nums">{label}</span><button onClick={() => shiftWeek(1)} className="p-2 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"><ChevronRight className="w-4 h-4" /></button></div>)}
+            {repMode === "month" && <input type="month" value={repMonth} onChange={(e) => setRepMonth(e.target.value)} className="bg-slate-800/60 border border-slate-700/60 rounded-lg px-2.5 py-2 text-sm text-slate-200 outline-none" />}
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            <StatCard label="Nettó bevétel" value={ft(net)} />
+            <StatCard label="Bérköltség" value={ft(lc.total)} />
+            <StatCard label="Labor Cost %" value={lcPct == null ? "—" : lcPct.toFixed(1) + "%"} big color={lcColor} sub={lcPct == null ? "adj meg forgalmat" : "bérköltség / nettó bevétel"} />
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            <StatCard label="Nettó szervízdíj" value={ft(service)} />
+            <StatCard label="Borravaló" value={ft(tip)} />
+          </div>
+
+          <div>
+            <div className="text-sm font-medium text-slate-200 mb-2">Bérköltség és LC% részlegenként</div>
+            {deptRows.length === 0 ? <div className="text-sm text-slate-500 border border-dashed border-slate-700 rounded-xl p-6 text-center">Nincs bérköltség-adat erre az időszakra.</div> : (
+              <div className="space-y-2">
+                {deptRows.map((r) => { const pct = net > 0 ? (r.cost / net) * 100 : null; return (
+                  <div key={r.d} className="bg-slate-900/40 border border-slate-800 rounded-lg p-3">
+                    <div className="flex items-center justify-between text-sm mb-1.5"><span className="text-slate-200">{deptLabel(r.d)}</span><span className="text-slate-300 tabular-nums">{ft(r.cost)}{pct != null && <span className="text-slate-500"> · {pct.toFixed(1)}%</span>}</span></div>
+                    <div className="h-2 rounded-full bg-slate-800 overflow-hidden"><div className="h-full rounded-full" style={{ width: `${Math.min(100, (r.cost / maxDept) * 100)}%`, background: BRAND.red }} /></div>
+                  </div>); })}
+              </div>
+            )}
+          </div>
+          <div className="text-[11px] text-slate-600">LC% = bérköltség / nettó bevétel. A havi fixesek bére napra arányosítva (havi összeg / a hónap napjai). A részlegenkénti % a részleg bérköltsége a teljes nettó bevételhez viszonyítva.</div>
+        </div>
+      </div>
+    );
+  }
+
   function AdminDesktop() {
     const liveEmps = people.filter((p) => p.level === "employee" && p.account !== "disabled");
     const insideNow = entries.filter((e) => e.checkOut == null).length;
@@ -1650,7 +1754,7 @@ export default function App() {
               {adminNav === "people" && PeopleAdminDesktop()}
               {adminNav === "schedule" && <Soon label="Beosztás — cégszintű nézet" />}
               {adminNav === "sanctions" && <Soon label="Szankciók — áttekintés" />}
-              {adminNav === "reports" && <Soon label="Riportok — munkaóra, bérköltség, Labor Cost%" />}
+              {adminNav === "reports" && ReportsAdminDesktop()}
               {adminNav === "exports" && ExportsAdminDesktop()}
               {adminNav === "settings" && <Soon label="Beállítások — munkakörök, idősávok, keretek, QR, jelszó" />}
             </div>
