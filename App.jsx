@@ -373,6 +373,9 @@ export default function App() {
   const [adminNav, setAdminNav] = useState("dashboard");
   const [adminPinInput, setAdminPinInput] = useState("");
   const [adminPinErr, setAdminPinErr] = useState(false);
+  const [adminImportOpen, setAdminImportOpen] = useState(false);
+  const [adminImportText, setAdminImportText] = useState("");
+  const [adminWipeConfirm, setAdminWipeConfirm] = useState(false);
   const [mgrTeamSub, setMgrTeamSub] = useState("hours");
   const [seenAnn, setSeenAnn] = useState([]);
   const [dutyManagers, setDutyManagers] = useState([{ id: 104, slot: "all" }, { id: 102, slot: "all" }]);
@@ -1287,6 +1290,114 @@ export default function App() {
     );
   }
 
+  function parseAdminImport(text) {
+    return text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((line, i) => {
+      const [name = "", deptRaw = "", role = "", rateRaw = ""] = line.split(/[;\t,]/).map((s) => s.trim());
+      const dl = deptRaw.toLowerCase();
+      let dept = null;
+      if (dl.includes("kony")) dept = "konyha";
+      else if (dl.includes("pál") || dl.includes("pal") || dl.includes("paly")) dept = "palya";
+      else if (dl.includes("pult")) dept = "pult";
+      else if (dl.includes("iroda") || dl.includes("office")) dept = "office";
+      const rate = Number(String(rateRaw).replace(/[^0-9]/g, ""));
+      const errors = [];
+      if (!name) errors.push("hiányzó név");
+      if (!dept) errors.push("ismeretlen részleg");
+      return { line: i + 1, name, deptRaw, dept, role: role || "Felszolgáló", rate: rate || 2000, valid: errors.length === 0, errors };
+    });
+  }
+  function runAdminImport() {
+    const rows = parseAdminImport(adminImportText).filter((r) => r.valid);
+    if (!rows.length) { flash("Nincs érvényes sor.", "warn"); return; }
+    let base = Math.max(0, ...people.map((p) => p.id));
+    const add = rows.map((r) => { base += 1; const id = base; return { id, name: r.name, role: r.role, dept: r.dept, depts: [r.dept], rate: r.rate, color: PALETTE[id % PALETTE.length], level: "employee", specialty: null, account: "pending" }; });
+    setPeople((p) => [...p, ...add]);
+    flash(`${add.length} dolgozó felvéve — aktiválásra várnak.`, "ok");
+    setAdminImportText(""); setAdminImportOpen(false);
+  }
+  function cleanStart() {
+    setPeople((p) => p.filter((x) => x.level !== "employee"));
+    setEntries([]); setSanctions([]); setSwaps([]); setTimeOff([]); setAnnouncements([]); setShifts([]); setDutyManagers([]); setActivationCodes({});
+    setAdminWipeConfirm(false);
+    flash("Tiszta indítás kész — a demó adatok törölve.", "ok");
+  }
+  function PeopleAdminDesktop() {
+    const rows = people.filter((p) => p.level === "employee");
+    const byDept = [...OPS_DEPTS, "office"].filter((d) => rows.some((r) => r.dept === d));
+    const statusBadge = (acc) => acc === "active"
+      ? <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300">Aktív</span>
+      : acc === "pending"
+      ? <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300">Aktiválásra vár</span>
+      : <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-600/30 text-slate-400">Letiltva</span>;
+    return (
+      <div className="space-y-5">
+        <div className="flex items-center gap-2">
+          <div className="text-sm text-slate-400">{rows.length} dolgozó</div>
+          <div className="ml-auto flex items-center gap-2">
+            <button onClick={() => setAdminImportOpen((v) => !v)} className="text-sm flex items-center gap-1.5 px-3 py-2 rounded-lg text-white font-medium" style={{ background: BRAND.red }}><UserPlus className="w-4 h-4" /> Tömeges felvétel</button>
+            <button onClick={() => setAdminWipeConfirm(true)} className="text-sm flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 text-rose-300 hover:bg-slate-700"><RotateCcw className="w-4 h-4" /> Tiszta indítás</button>
+          </div>
+        </div>
+
+        {adminImportOpen && (
+          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-3">
+            <div className="text-sm font-medium text-slate-200">Tömeges felvétel</div>
+            <div className="text-xs text-slate-500">Soronként egy dolgozó. Formátum: <span className="text-slate-300">Név; Részleg; Munkakör; Órabér</span>. Részleg: Konyha / Pálya / Pult / Iroda. Excelből is beilleszthető.</div>
+            <textarea value={adminImportText} onChange={(e) => setAdminImportText(e.target.value)} rows={6} placeholder={"Kovács Anna; Konyha; Szakács; 2800\nNagy Béla; Pálya; Felszolgáló; 2400"} className="w-full bg-slate-800/60 border border-slate-700/60 rounded-lg p-3 text-sm text-slate-100 outline-none focus:border-slate-500 font-mono" />
+            {adminImportText.trim() && (() => {
+              const prev = parseAdminImport(adminImportText);
+              const ok = prev.filter((r) => r.valid).length;
+              return (<div className="space-y-2">
+                <div className="text-xs text-slate-400">Előnézet — {ok}/{prev.length} érvényes:</div>
+                <div className="max-h-48 overflow-auto border border-slate-800 rounded-lg">
+                  <table className="w-full text-sm">
+                    <thead className="text-[11px] text-slate-500 bg-slate-800/40"><tr><th className="text-left px-3 py-1.5">Név</th><th className="text-left px-3 py-1.5">Részleg</th><th className="text-left px-3 py-1.5">Munkakör</th><th className="text-right px-3 py-1.5">Órabér</th><th className="px-3 py-1.5"></th></tr></thead>
+                    <tbody>{prev.map((r) => (<tr key={r.line} className="border-t border-slate-800/60"><td className="px-3 py-1.5 text-slate-200">{r.name || <span className="text-rose-400">—</span>}</td><td className="px-3 py-1.5 text-slate-300">{r.dept ? deptLabel(r.dept) : <span className="text-rose-400">{r.deptRaw || "—"}</span>}</td><td className="px-3 py-1.5 text-slate-400">{r.role}</td><td className="px-3 py-1.5 text-right text-slate-300">{r.rate} Ft</td><td className="px-3 py-1.5 text-right">{r.valid ? <Check className="w-4 h-4 text-emerald-400 inline" /> : <span className="text-[10px] text-rose-400">{r.errors.join(", ")}</span>}</td></tr>))}</tbody>
+                  </table>
+                </div>
+                <div className="flex gap-2"><button onClick={runAdminImport} disabled={!ok} className={`px-4 py-2 rounded-lg text-sm font-medium ${ok ? "bg-emerald-600 text-white hover:bg-emerald-500" : "bg-slate-700/50 text-slate-500 cursor-not-allowed"}`}>{ok} dolgozó létrehozása</button><button onClick={() => { setAdminImportText(""); setAdminImportOpen(false); }} className="px-4 py-2 rounded-lg text-sm bg-slate-800 text-slate-300">Mégse</button></div>
+              </div>);
+            })()}
+          </div>
+        )}
+
+        {byDept.map((dep) => { const list = rows.filter((r) => r.dept === dep).sort((a, b) => a.name.localeCompare(b.name, "hu")); return (
+          <div key={dep}>
+            <div className="text-xs text-slate-500 mb-1.5">{deptLabel(dep)} · {list.length} fő</div>
+            <div className="border border-slate-800 rounded-xl overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="text-[11px] text-slate-500 bg-slate-800/40"><tr><th className="text-left px-3 py-2">Név</th><th className="text-left px-3 py-2">Munkakör</th><th className="text-right px-3 py-2">Órabér</th><th className="text-left px-3 py-2 pl-4">Státusz</th><th className="text-right px-3 py-2">Művelet</th></tr></thead>
+                <tbody>{list.map((p) => (
+                  <tr key={p.id} className="border-t border-slate-800/60 hover:bg-slate-800/30">
+                    <td className="px-3 py-2 text-slate-200">{p.name}</td>
+                    <td className="px-3 py-2 text-slate-400">{p.role}</td>
+                    <td className="px-3 py-2 text-right text-slate-300">{p.rate} Ft</td>
+                    <td className="px-3 py-2 pl-4">{statusBadge(p.account)}</td>
+                    <td className="px-3 py-2 text-right whitespace-nowrap">
+                      {p.account === "pending" && <button onClick={() => genInviteCode(p.id)} className="text-xs px-2 py-1 rounded bg-amber-500/15 text-amber-300 hover:bg-amber-500/25">Kód</button>}
+                      {p.account === "active" && <button onClick={() => deactivateEmp(p.id)} className="text-xs px-2 py-1 rounded bg-slate-700/50 text-slate-300 hover:bg-slate-700">Letiltás</button>}
+                      {p.account === "disabled" && <button onClick={() => reactivateEmp(p.id)} className="text-xs px-2 py-1 rounded bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25">Visszaállítás</button>}
+                    </td>
+                  </tr>))}</tbody>
+              </table>
+            </div>
+          </div>); })}
+        {rows.length === 0 && <div className="text-sm text-slate-500 border border-dashed border-slate-700 rounded-xl p-8 text-center">Még nincs dolgozó. Vedd fel őket a „Tömeges felvétel" gombbal.</div>}
+
+        {adminWipeConfirm && (
+          <div className="fixed inset-0 z-50 bg-slate-950/80 flex items-center justify-center p-6" onClick={() => setAdminWipeConfirm(false)}>
+            <div className="w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl p-5 space-y-3" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center gap-2 text-rose-300 font-semibold"><AlertTriangle className="w-5 h-5" /> Tiszta indítás</div>
+              <div className="text-sm text-slate-300">Ez törli az összes <b>dolgozót</b> és a működési adatokat (bélyegzések, műszakok, szankciók, cserék, szabadnapok, közlemények). A <b>vezetők</b>, a <b>munkakörök</b> és az <b>idősávok</b> megmaradnak.</div>
+              <div className="text-xs text-slate-500">Akkor használd, amikor a demó után a valós névsorral indulsz. Nem vonható vissza.</div>
+              <div className="flex gap-2 pt-1"><button onClick={cleanStart} className="flex-1 py-2.5 rounded-lg bg-rose-600 text-white font-medium hover:bg-rose-500">Igen, töröljük</button><button onClick={() => setAdminWipeConfirm(false)} className="px-4 py-2.5 rounded-lg bg-slate-800 text-slate-300">Mégse</button></div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   function AdminDesktop() {
     const liveEmps = people.filter((p) => p.level === "employee" && p.account !== "disabled");
     const insideNow = entries.filter((e) => e.checkOut == null).length;
@@ -1338,7 +1449,7 @@ export default function App() {
                 <div className="text-xs text-slate-500">A számok élőben frissülnek a telefonos appal közös adatból.</div>
               </div>)}
               {adminNav === "hours" && DailyHoursSection()}
-              {adminNav === "people" && <Soon label="Dolgozók — teljes törzsadat + tömeges import" />}
+              {adminNav === "people" && PeopleAdminDesktop()}
               {adminNav === "schedule" && <Soon label="Beosztás — cégszintű nézet" />}
               {adminNav === "sanctions" && <Soon label="Szankciók — áttekintés" />}
               {adminNav === "reports" && <Soon label="Riportok — munkaóra, bérköltség, Labor Cost%" />}
